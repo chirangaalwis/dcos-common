@@ -94,7 +94,7 @@ public class MesosMembershipScheme implements HazelcastMembershipScheme {
     private int dnsUpdateTimeout;
 
     public MesosMembershipScheme(Map<String, Parameter> parameters, String primaryDomain, Config config,
-            HazelcastInstance primaryHazelcastInstance, List<ClusteringMessage> messageBuffer) {
+                                 HazelcastInstance primaryHazelcastInstance, List<ClusteringMessage> messageBuffer) {
         this.parameters = parameters;
         this.primaryHazelcastInstance = primaryHazelcastInstance;
         this.messageBuffer = messageBuffer;
@@ -162,28 +162,29 @@ public class MesosMembershipScheme implements HazelcastMembershipScheme {
                 if (log.isDebugEnabled()) {
                     log.debug("Mesos DNS SRV record list: " + mesosDNSSRVRecords);
                 }
-                if (mesosDNSSRVRecords == null || mesosDNSSRVRecords.isEmpty() || mesosDNSSRVRecords.get(0) == null) {
+                if (mesosDNSSRVRecords == null || mesosDNSSRVRecords.isEmpty()) {
                     log.error(String.format("Mesos DNS SRV record list is empty. Could not add members in [AppId] %s", marathonAppId));
                     continue;
                 }
-                int hazelcastPort = Integer.parseInt(mesosDNSSRVRecords.get(0).getPort());
-                String hazelcastIp = mesosDNSSRVRecords.get(0).getIp();
-                // Mesos DNS API does not return an ordered list. Therefore need
-                // to search for the Hazelcast port by
-                // iterating the list and taking the record with lowest
-                // numerical port value. By convention we define
-                // Hazelcast port as the first port mapping hence it should get
-                // the lowest numerical port value
-                for (MesosDNSSRVRecord mesosDNSSRVRecord : mesosDNSSRVRecords) {
-                    int port = Integer.parseInt(mesosDNSSRVRecord.getPort());
-                    if (hazelcastPort > port) {
-                        hazelcastPort = port;
-                        hazelcastIp = mesosDNSSRVRecord.getIp();
+
+                //  loop through the DNS record entries and
+                //  capture the Hazelcast service of each Marathon application instance
+                int port;
+                String nodeIP;
+                String previousNodeIP = "";
+                String memberAddress;
+                for (MesosDNSSRVRecord record : mesosDNSSRVRecords) {
+                    port = Integer.parseInt(record.getPort());
+                    nodeIP = record.getIp();
+
+                    if (!nodeIP.equals(previousNodeIP)) {
+                        // add member to the cluster configuration
+                        memberAddress = nodeIP + ":" + port;
+                        nwConfig.getJoin().getTcpIpConfig().addMember(memberAddress);
+                        log.info(String.format("Member added to cluster configuration: [Address] %s", memberAddress));
                     }
+                    previousNodeIP = nodeIP;
                 }
-                String memberAddress = hazelcastIp + ":" + hazelcastPort;
-                nwConfig.getJoin().getTcpIpConfig().addMember(memberAddress);
-                log.info(String.format("Member added to cluster configuration: [Address] %s", memberAddress));
             } catch (MesosException e) {
                 handleMesosException(e, marathonAppId);
             }
